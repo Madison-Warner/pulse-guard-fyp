@@ -1,12 +1,12 @@
 # pulse-guard-fyp
-PulseGuard is a mobile and smartwatch health monitoring system designed to track vital signs in real time and provide proactive alerts to support user wellbeing. It is developed as a Final Year Project for the BSc (Hons) in Software Development in Munter Technological University.
+PulseGuard is a heart-rate monitoring system with automated escalation, developed as a Final Year Project for the BSc (Hons) in Software Development.
 
-The system consists of a mobile application and a companion smartwatch application that work together to monitor key health metrics such as heart rate and activity levels in real time. PulseGuard aims to support proactive health awareness by presenting clear insights, historical trends, and timely alerts to the user.
+The application continuously monitors the user’s heart rate using a Samsung smartwatch running Wear OS. In the event of a detected cardiac event, PulseGuard can automatically escalate the situation by notifying preconfigured emergency contacts through the companion mobile application if the user is unresponsive.
 
-The project focuses on:
-- Seamless communication between mobile and wearable devices
-- Real-time data collection and synchronisation
-- User-friendly visualisation of health metrics
-- Scalable and maintainable software architecture
+The system is designed to support proactive health monitoring while prioritising reliability, usability, and timely intervention. A companion mobile app allows users to configure emergency contacts, review historical heart-rate data, and manage alert preferences.
 
-This repository follows a monorepo structure, containing both the mobile and smartwatch applications, along with any shared components.
+This project focuses on:
+- Real-time heart-rate monitoring on Wear OS
+- Automated anomaly detection and escalation
+- Reliable communication between smartwatch and mobile devices
+- User-centred design for health-critical applications
