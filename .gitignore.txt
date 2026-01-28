@@ -1,1 +1,46 @@
 
+# ===== Android Studio / IntelliJ =====
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ===== Gradle =====
+.gradle/
+build/
+*/build/
+
+# ===== Local configuration =====
+local.properties
+
+# ===== Log files =====
+*.log
+
+# ===== OS generated files =====
+.DS_Store
+Thumbs.db
+
+# ===== APK / AAB =====
+*.apk
+*.aab
+
+# ===== External native build =====
+.cxx/
+
+# ===== Keystore files (DO NOT COMMIT) =====
+*.jks
+*.keystore
+
+# ===== Firebase / Google services =====
+google-services.json
+firebase.json
+
+# ===== Kotlin =====
+*.kotlin_module
+
+# ===== NDK =====
+obj/
+
+# ===== Temporary files =====
+*.swp
+*~
