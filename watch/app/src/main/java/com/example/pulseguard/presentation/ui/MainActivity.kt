@@ -3,7 +3,7 @@
  * most up to date changes to the libraries and their usages.
  */
 
-package com.example.pulseguard.presentation
+package com.example.pulseguard.presentation.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
