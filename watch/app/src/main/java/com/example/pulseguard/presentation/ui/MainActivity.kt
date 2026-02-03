@@ -3,7 +3,6 @@ package com.example.pulseguard.presentation.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,14 +17,12 @@ class MainActivity : ComponentActivity() {
             if (granted) {
                 startHrService()
             } else {
-                // For Sprint 0: just log or show a message
-                // You can’t start a health-type FGS without it on targetSdk 36
+                // Sprint 0: permission denied → do nothing / log
             }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         ensureSensorsPermissionThenStart()
     }
 
@@ -46,4 +43,13 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(this, HrForegroundService::class.java)
         startForegroundService(this, intent)
     }
+
+    // Call this later from a button / test action
+    private fun stopHrService() {
+        val intent = Intent(this, HrForegroundService::class.java).apply {
+            action = HrForegroundService.ACTION_STOP
+        }
+        startService(intent)
+    }
 }
+

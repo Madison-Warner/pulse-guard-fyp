@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os. PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
@@ -17,8 +18,11 @@ class HrForegroundService : Service() {
         private const val CHANNEL_ID = "pulseguard_monitoring"
         private const val CHANNEL_NAME = "PulseGuard Monitoring"
         private const val NOTIFICATION_ID = 1001
+
+        const val ACTION_STOP = "com.example.pulseguard.ACTION_STOP"
     }
 
+    private var wakeLock: PowerManager.WakeLock? = null
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
 
@@ -33,6 +37,8 @@ class HrForegroundService : Service() {
         // Start foreground immediately
         startForeground(NOTIFICATION_ID, buildNotification())
 
+        acquireCpuWakeLock()
+
         // Smoke-test loop: log every 5 seconds
         serviceScope.launch {
             while (isActive) {
@@ -41,8 +47,29 @@ class HrForegroundService : Service() {
             }
         }
 
+        if (intent?.action == ACTION_STOP) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         // Keep running unless it is explicitly stopped
         return START_STICKY
+    }
+
+    private fun acquireCpuWakeLock() {
+        if (wakeLock?.isHeld == true) return
+
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "PulseGuard:HrForegroundService"
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+
+        Log.d(TAG, "CPU WakeLock acquired")
     }
 
     override fun onDestroy() {
