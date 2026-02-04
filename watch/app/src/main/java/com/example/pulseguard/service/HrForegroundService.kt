@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os. PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.pulseguard.processing.AnomalyProcessor
 import kotlinx.coroutines.*
 
 class HrForegroundService : Service() {
@@ -39,10 +40,17 @@ class HrForegroundService : Service() {
 
         acquireCpuWakeLock()
 
+        val processor = AnomalyProcessor()
         // Smoke-test loop: log every 5 seconds
         serviceScope.launch {
+            var fakeBpm = 70
             while (isActive) {
-                Log.d(TAG, "Service allive @ ${System.currentTimeMillis()}")
+                val anomaly = processor.processSample(fakeBpm)
+                Log.d(TAG, "Native processor bpm=$fakeBpm anomaly=$anomaly")
+
+                fakeBpm += 1
+                if (fakeBpm > 80) fakeBpm = 70
+
                 delay(5000)
             }
         }
