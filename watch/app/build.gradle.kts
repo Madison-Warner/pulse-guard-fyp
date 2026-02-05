@@ -15,6 +15,19 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        externalNativeBuild {
+            cmake {
+                cppFlags += ""
+            }
+        }
+        ndk {
+            abiFilters.addAll(
+                listOf(
+                    "armeabi-v7a",
+                    "arm64-v8a"
+                )
+            )
+        }
 
     }
 
@@ -34,6 +47,12 @@ android {
     useLibrary("wear-sdk")
     buildFeatures {
         compose = true
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 
