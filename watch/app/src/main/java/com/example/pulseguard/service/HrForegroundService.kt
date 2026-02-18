@@ -7,11 +7,10 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.os. PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.example.pulseguard.processing.AnomalyProcessor
-import kotlinx.coroutines.*
+import com.example.pulseguard.data.HeartRateRepository
+import com.example.pulseguard.sensor.AndroidHeartRateSensor
 
 class HrForegroundService : Service() {
     companion object {
@@ -21,68 +20,98 @@ class HrForegroundService : Service() {
         private const val NOTIFICATION_ID = 1001
 
         const val ACTION_STOP = "com.example.pulseguard.ACTION_STOP"
+        const val ACTION_HR_UPDATE = "com.example.pulseguard.ACTION_HR_UPDATE"
+        const val EXTRA_BPM = "extra_bpm"
+        const val EXTRA_RUNNING = "extra_running"
     }
 
-    private var wakeLock: PowerManager.WakeLock? = null
-    private val serviceJob = SupervisorJob()
-    private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
+    // Failed Samsung Sensor Manger
+    // private lateinit var hrManager: com.example.pulseguard.sensor.HeartRateSensorManager
+
+    // Android SensorManager
+    private var androidHRSensor: AndroidHeartRateSensor? = null
+    private lateinit var repo: HeartRateRepository
+    private var sensorStarted = false
+
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "onCreate()")
+
+        repo = HeartRateRepository(this)
         createNotificationChannel()
+        // Failed Samsung Sensor Manger
+        /*
+        hrManager = com.example.pulseguard.sensor.HeartRateSensorManager(
+            context = this,
+            onBpm = { bpm, ts ->
+                Log.d(TAG, "HR callback bpm=$bpm ts=$ts")
+            }
+        )
+        */
+        // Android SensorManager
+        androidHRSensor = AndroidHeartRateSensor(
+            context = this,
+            onBpm = { bpm, ts ->
+                Log.d(TAG, " BPM=$bpm ts=$ts")
+                repo.append(ts, bpm) // later: send to C++ / anomaly processor
+                broadcastStatus(bpm = bpm, running = true)
+            }
+        )
+
+        Log.d(TAG, "Logging HR to: ${repo.path()}")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand() - starting foreground")
 
-        // Start foreground immediately
-        startForeground(NOTIFICATION_ID, buildNotification())
 
-        acquireCpuWakeLock()
-
-        val processor = AnomalyProcessor()
-        // Smoke-test loop: log every 5 seconds
-        serviceScope.launch {
-            var fakeBpm = 70
-            while (isActive) {
-                val anomaly = processor.processSample(fakeBpm)
-                Log.d(TAG, "Native processor bpm=$fakeBpm anomaly=$anomaly")
-
-                fakeBpm += 1
-                if (fakeBpm > 80) fakeBpm = 70
-
-                delay(5000)
-            }
-        }
-
+        // Handle stop action
         if (intent?.action == ACTION_STOP) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            Log.d(TAG, "ACTION_STOP received")
+            stopTrackingAndSelf()
             return START_NOT_STICKY
         }
 
-        // Keep running unless it is explicitly stopped
-        return START_STICKY
-    }
+        // Start foreground and broadcast immediately
+        startForeground(NOTIFICATION_ID, buildNotification())
+        broadcastStatus(bpm = null, running = true)
+        Log.d(TAG, "FGS started")
 
-    private fun acquireCpuWakeLock() {
-        if (wakeLock?.isHeld == true) return
-
-        val pm = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "PulseGuard:HrForegroundService"
-        ).apply {
-            setReferenceCounted(false)
-            acquire()
+        if (!sensorStarted) {
+            try {
+                val ok = androidHRSensor?.start() ?: false
+                sensorStarted = ok
+                Log.d(TAG, "Android HR sensor started? $ok")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Starting Android HR sensor failed", t)
+                stopSelf()
+                return START_NOT_STICKY
+            }
         }
 
-        Log.d(TAG, "CPU WakeLock acquired")
+        // Keep running unless it is explicitly stopped
+        return START_NOT_STICKY
+    }
+
+    private fun stopTrackingAndSelf(){
+        try {
+            androidHRSensor?.stop()
+            sensorStarted = false
+        } catch (t: Throwable){
+            Log.e(TAG, "Error stopping HR sensor", t)
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        broadcastStatus(bpm = null, running = false)
+        stopSelf()
     }
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy()")
-        serviceJob.cancel()
+        try{
+            androidHRSensor?.stop()
+            sensorStarted = false
+        } catch (_: Throwable) {}
         super.onDestroy()
     }
 
@@ -97,7 +126,7 @@ class HrForegroundService : Service() {
             .build()
     }
 
-    private fun createNotificationChannel(){
+    private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
@@ -107,5 +136,14 @@ class HrForegroundService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
+    }
+
+    private fun broadcastStatus(bpm: Int?, running: Boolean) {
+        val intent = Intent(ACTION_HR_UPDATE).apply {
+            setPackage(packageName) // Keeps it inside the app
+            putExtra(EXTRA_RUNNING, running)
+            if (bpm != null) putExtra(EXTRA_BPM, bpm)
+        }
+        sendBroadcast(intent)
     }
 }
