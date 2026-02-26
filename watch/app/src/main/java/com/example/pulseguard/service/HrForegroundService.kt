@@ -11,6 +11,11 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.pulseguard.data.HeartRateRepository
 import com.example.pulseguard.sensor.AndroidHeartRateSensor
+import com.example.pulseguard.processing.AnomalyProcessor
+
+private lateinit var edge: AnomalyProcessor
+private var  lastFiltered: Int = 0
+private var lastEvent: Int = AnomalyProcessor.EVENT_NONE
 
 class HrForegroundService : Service() {
     companion object {
@@ -34,11 +39,14 @@ class HrForegroundService : Service() {
     private var sensorStarted = false
 
 
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "onCreate()")
 
         repo = HeartRateRepository(this)
+        edge = AnomalyProcessor()
+
         createNotificationChannel()
         // Failed Samsung Sensor Manger
         /*
@@ -53,8 +61,17 @@ class HrForegroundService : Service() {
         androidHRSensor = AndroidHeartRateSensor(
             context = this,
             onBpm = { bpm, ts ->
-                Log.d(TAG, " BPM=$bpm ts=$ts")
-                repo.append(ts, bpm) // later: send to C++ / anomaly processor
+                // Run edge processing (filter + anomaly detection)
+                val event = edge.processSample(bpm, ts)
+                val filtered = edge.lastFilteredBpm()
+
+                // Log + store
+                Log.d(TAG, "raw=$bpm filtered=$filtered event=$event ts=$ts")
+
+                // For now keep raw log
+                repo.append(ts, bpm, filtered, event)
+
+                // Update UI broadcast (raw BPM still ok for now)
                 broadcastStatus(bpm = bpm, running = true)
             }
         )
@@ -91,7 +108,7 @@ class HrForegroundService : Service() {
         }
 
         // Keep running unless it is explicitly stopped
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun stopTrackingAndSelf(){
