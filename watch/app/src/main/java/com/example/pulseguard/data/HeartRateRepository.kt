@@ -10,13 +10,15 @@ class HeartRateRepository(private val context: Context) {
     private val fileName = "hr_log.csv"
     private val file: File get() = File(context.filesDir, fileName)
 
-    fun append(timestampMillis: Long, bpm: Int){
+    fun append(ts: Long, raw: Int, filtered: Int, event: Int){
         try {
-            val needsHeader = !file.exists() || file.length() == 0L
-            file.appendText(buildString{
-                if (needsHeader) append("timestampMillis,bpm\n")
-                append("$timestampMillis, %bpm\n")
-            })
+            val file = File(context.filesDir, "hr_log.csv")
+
+            if (!file.exists()) {
+                file.writeText("timestampMillis,rawBpm,filteredBpm,eventCode\n")
+            }
+
+            file.appendText("$ts,$raw,$filtered,$event\n")
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to append HR log", t)
         }
