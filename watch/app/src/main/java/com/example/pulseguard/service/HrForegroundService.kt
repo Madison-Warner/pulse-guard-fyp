@@ -9,13 +9,11 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.pulseguard.ble.BleSender
 import com.example.pulseguard.data.HeartRateRepository
 import com.example.pulseguard.sensor.AndroidHeartRateSensor
 import com.example.pulseguard.processing.AnomalyProcessor
-
-private lateinit var edge: AnomalyProcessor
-private var  lastFiltered: Int = 0
-private var lastEvent: Int = AnomalyProcessor.EVENT_NONE
+import kotlinx.coroutines.*
 
 class HrForegroundService : Service() {
     companion object {
@@ -39,6 +37,11 @@ class HrForegroundService : Service() {
     private var sensorStarted = false
 
 
+    private lateinit var edge: AnomalyProcessor
+    private var  lastFiltered: Int = 0
+    private var lastEvent: Int = AnomalyProcessor.EVENT_NONE
+    private lateinit var bleSender: BleSender
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -46,6 +49,7 @@ class HrForegroundService : Service() {
 
         repo = HeartRateRepository(this)
         edge = AnomalyProcessor()
+        bleSender = com.example.pulseguard.ble.BleSender(this)
 
         createNotificationChannel()
         // Failed Samsung Sensor Manger
@@ -64,6 +68,16 @@ class HrForegroundService : Service() {
                 // Run edge processing (filter + anomaly detection)
                 val event = edge.processSample(bpm, ts)
                 val filtered = edge.lastFilteredBpm()
+
+                // BLE
+                val json = """{"ts":$ts,"raw":$bpm,"filtered":$filtered,"event":$event}"""
+                serviceScope.launch {
+                    try {
+                        bleSender.send(json)
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "Failed to send HR packet", t)
+                    }
+                }
 
                 // Log + store
                 Log.d(TAG, "raw=$bpm filtered=$filtered event=$event ts=$ts")
@@ -108,7 +122,7 @@ class HrForegroundService : Service() {
         }
 
         // Keep running unless it is explicitly stopped
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun stopTrackingAndSelf(){
@@ -129,6 +143,7 @@ class HrForegroundService : Service() {
             androidHRSensor?.stop()
             sensorStarted = false
         } catch (_: Throwable) {}
+        serviceScope.cancel()
         super.onDestroy()
     }
 

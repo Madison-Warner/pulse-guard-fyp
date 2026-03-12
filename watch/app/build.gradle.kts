@@ -71,7 +71,11 @@ dependencies {
     androidTestImplementation(libs.ui.test.junit4)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Samsung Health Sensor SDK
     implementation(files("libs/samsung-health-sensor-api-1.4.1.aar"))
+
+    // Wearable Dependency
+    implementation("com.google.android.gms:play-services-wearable:18.2.0")
 }
