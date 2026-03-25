@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "631625407971",
+    "project_id": "pulseguard-c6d88",
+    "storage_bucket": "pulseguard-c6d88.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:631625407971:android:2a97a771d56d0d3a47d4d6",
+        "android_client_info": {
+          "package_name": "com.example.pulseguard"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC8ogN0wr0R3aMAOvU3cgQS8mpDXU4Iw0s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
