@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.pulseguard.alert.AlertController
 import com.example.pulseguard.ble.BleSender
 import com.example.pulseguard.data.HeartRateRepository
 import com.example.pulseguard.sensor.AndroidHeartRateSensor
@@ -26,6 +27,10 @@ class HrForegroundService : Service() {
         const val ACTION_HR_UPDATE = "com.example.pulseguard.ACTION_HR_UPDATE"
         const val EXTRA_BPM = "extra_bpm"
         const val EXTRA_RUNNING = "extra_running"
+        const val ACTION_ALERT_UPDATE = "com.example.pulseguard.ACTION_ALERT_UPDATE"
+        const val EXTRA_ALERT_ACTIVE = "extra_alert_active"
+        const val EXTRA_COUNTDOWN = "extra_countdown"
+
     }
 
     // Failed Samsung Sensor Manger
@@ -36,12 +41,19 @@ class HrForegroundService : Service() {
     private lateinit var repo: HeartRateRepository
     private var sensorStarted = false
 
-
+    // Edge Processor
     private lateinit var edge: AnomalyProcessor
     private var  lastFiltered: Int = 0
     private var lastEvent: Int = AnomalyProcessor.EVENT_NONE
+
+    // BLE
     private lateinit var bleSender: BleSender
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Alert Controller
+    private lateinit var alertController: AlertController
+    private var alertActive = false
+    private var countdownSecondsReamaining: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -61,6 +73,18 @@ class HrForegroundService : Service() {
             }
         )
         */
+
+        alertController = AlertController(
+            onTick = { seconds ->
+                countdownSecondsReamaining = seconds
+                Log.d(TAG, "Alert countdown: $seconds")
+                // Later: update watch UI/notification
+            },
+            onEscalate = {
+                sendEmergencyToPhone()
+            }
+        )
+
         // Android SensorManager
         androidHRSensor = AndroidHeartRateSensor(
             context = this,
@@ -87,6 +111,18 @@ class HrForegroundService : Service() {
 
                 // Update UI broadcast (raw BPM still ok for now)
                 broadcastStatus(bpm = bpm, running = true)
+
+                if(event != 0 && !alertActive) {
+                    Log.d(TAG, "ALERT TRIGGERED: $event")
+                    alertActive = true
+
+                    alertController.startCountdown()
+                }
+
+                if (event == 0 && alertActive && !alertController.isActive()){
+                    alertActive = false
+                }
+
             }
         )
 
@@ -121,6 +157,23 @@ class HrForegroundService : Service() {
             }
         }
 
+        if (intent?.action == ACTION_CANCEL_ALERT) {
+            Log.d(TAG, "ACTION_CANCEL_ALERT received")
+            alertController.cancel()
+            alertActive = false
+            broadcastAlertState(active = false, countdown = 0)
+            return START_STICKY
+        }
+
+        if (intent?.action == ACTION_SEND_HELP_NOW) {
+            Log.d(TAG, "ACTION_SEND_HELP_NOW received")
+            alertController.cancel()
+            alertActive = false
+            broadcastAlertState(active = false, countdown = 0)
+            sendEmergencyToPhone()
+            return START_STICKY
+        }
+
         // Keep running unless it is explicitly stopped
         return START_NOT_STICKY
     }
@@ -134,6 +187,8 @@ class HrForegroundService : Service() {
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
         broadcastStatus(bpm = null, running = false)
+        alertController.cancel()
+        alertActive = false
         stopSelf()
     }
 
@@ -144,6 +199,8 @@ class HrForegroundService : Service() {
             sensorStarted = false
         } catch (_: Throwable) {}
         serviceScope.cancel()
+        alertController.cancel()
+        alertActive = false
         super.onDestroy()
     }
 
@@ -177,5 +234,25 @@ class HrForegroundService : Service() {
             if (bpm != null) putExtra(EXTRA_BPM, bpm)
         }
         sendBroadcast(intent)
+    }
+
+    private fun sendEmergencyToPhone() {
+        val json = """
+            {
+            "type":"ALERT",
+            "ts":${System.currentTimeMillis()},
+            "countdownExpired":true
+            }
+        """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(json)
+                Log.d(TAG, "Emergency alert sent to phone")
+                alertActive = false
+            } catch (t: Throwable) {
+                Log.e(TAG, " Failed to send emergency alert", t)
+            }
+        }
     }
 }

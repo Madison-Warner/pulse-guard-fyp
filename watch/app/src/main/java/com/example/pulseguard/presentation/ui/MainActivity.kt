@@ -31,6 +31,7 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.example.pulseguard.service.HrForegroundService
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 
 private fun requiredHrPermission(): String = Manifest.permission.BODY_SENSORS
@@ -50,10 +51,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             var isRunning by remember { mutableStateOf(false) }
             var bpm by remember { mutableStateOf<Int?>(null) }
+            var alertActive by remember { mutableStateOf(false) }
+            var countdown by remember { mutableIntStateOf(0) }
 
             DisposableEffect(Unit) {
                 val receiver = object : BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: Intent) {
+                        when (intent.action) {
+                            HrForegroundService.ACTION_ALERT_UPDATE -> {
+                                alertActive = intent.getBooleanExtra(
+                                    HrForegroundService.EXTRA_ALERT_ACTIVE,
+                                    false
+                                )
+                                countdown = intent.getIntExtra(
+                                    HrForegroundService.EXTRA_COUNTDOWN,
+                                    0
+                                )
+                            }
+                        }
                         if (intent.action == HrForegroundService.ACTION_HR_UPDATE){
                             isRunning = intent.getBooleanExtra(
                                 HrForegroundService.EXTRA_RUNNING,

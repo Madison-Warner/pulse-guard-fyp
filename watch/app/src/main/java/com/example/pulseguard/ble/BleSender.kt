@@ -11,7 +11,7 @@ class BleSender(private val context: Context){
 
     companion object{
         private const val TAG = "BleSender"
-        private const val PATH_HR = "S"
+        private const val PATH_HR = "/hr_data"
     }
 
     suspend fun send(payload: String) = withContext(Dispatchers.IO) {
