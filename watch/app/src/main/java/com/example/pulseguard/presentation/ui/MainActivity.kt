@@ -15,7 +15,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -58,6 +61,21 @@ class MainActivity : ComponentActivity() {
                 val receiver = object : BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: Intent) {
                         when (intent.action) {
+                            HrForegroundService.ACTION_HR_UPDATE -> {
+                                isRunning = intent.getBooleanExtra(
+                                    HrForegroundService.EXTRA_RUNNING,
+                                    false
+                                )
+
+                                if (intent.hasExtra(HrForegroundService.EXTRA_BPM)) {
+                                    val value = intent.getIntExtra(
+                                        HrForegroundService.EXTRA_BPM,
+                                        -1
+                                    )
+                                    bpm = value.takeIf { it > 0 }
+                                }
+                            }
+
                             HrForegroundService.ACTION_ALERT_UPDATE -> {
                                 alertActive = intent.getBooleanExtra(
                                     HrForegroundService.EXTRA_ALERT_ACTIVE,
@@ -69,19 +87,12 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                        if (intent.action == HrForegroundService.ACTION_HR_UPDATE){
-                            isRunning = intent.getBooleanExtra(
-                                HrForegroundService.EXTRA_RUNNING,
-                                false
-                            )
-                            if (intent.hasExtra(HrForegroundService.EXTRA_BPM)) {
-                                val value = intent.getIntExtra(HrForegroundService.EXTRA_BPM, -1)
-                                bpm = value.takeIf { it > 0 }
-                            }
-                        }
                     }
                 }
-                val filter = IntentFilter(HrForegroundService.ACTION_HR_UPDATE)
+                val filter = IntentFilter().apply {
+                    addAction(HrForegroundService.ACTION_HR_UPDATE)
+                    addAction(HrForegroundService.ACTION_ALERT_UPDATE)
+                }
 
                 val flags = if (Build.VERSION.SDK_INT >= 33) {
                     Context.RECEIVER_NOT_EXPORTED
@@ -94,12 +105,20 @@ class MainActivity : ComponentActivity() {
             }
 
             MaterialTheme{
-                PulseGuardScreen(
-                    isRunning = isRunning,
-                    bpm = bpm,
-                    onStart = { ensureSensorsPermissionThen { startHrService() } },
-                    onStop = { stopHrService() }
-                )
+                if (alertActive) {
+                    AlertScreen(
+                        countdown = countdown,
+                        onCancel = { sendCancelAlertIntent() },
+                        onSendNow = { sendHelpNowIntent() }
+                    )
+                } else {
+                    PulseGuardScreen(
+                        isRunning = isRunning,
+                        bpm = bpm,
+                        onStart = { ensureSensorsPermissionThen { startHrService() } },
+                        onStop = { stopHrService() }
+                    )
+                }
             }
         }
     }
@@ -128,6 +147,20 @@ class MainActivity : ComponentActivity() {
         }
         startService(intent)
     }
+
+    private fun sendCancelAlertIntent() {
+        val intent = Intent(this, HrForegroundService::class.java).apply {
+            action = HrForegroundService.ACTION_CANCEL_ALERT
+        }
+        startForegroundService(this, intent)
+    }
+
+    private fun sendHelpNowIntent() {
+        val intent = Intent(this, HrForegroundService::class.java).apply {
+            action = HrForegroundService.ACTION_SEND_HELP_NOW
+        }
+        startForegroundService(this, intent)
+    }
 }
 
 @Composable
@@ -150,9 +183,67 @@ private fun PulseGuardScreen(
             modifier = Modifier.padding(top = 6.dp)
         )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onStart, enabled = !isRunning) { Text("Start") }
-            Button(onClick = onStop, enabled = isRunning) { Text("Stop")}
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(onClick = onStart, enabled = !isRunning) {
+                Text("Start")
+            }
+            Button(onClick = onStop, enabled = isRunning) {
+                Text("Stop")
+            }
+        }
+    }
+}
+
+@Composable
+fun AlertScreen(
+    countdown: Int,
+    onCancel: () -> Unit,
+    onSendNow: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Emergency Alert",
+            style = MaterialTheme.typography.title1
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Abnormal heart rate detected",
+            style = MaterialTheme.typography.body1
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Countdown: $countdown",
+            style = MaterialTheme.typography.title2
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("I'm OK")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onSendNow,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Send Help Now")
         }
     }
 }

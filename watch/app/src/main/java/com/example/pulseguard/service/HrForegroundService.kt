@@ -30,6 +30,8 @@ class HrForegroundService : Service() {
         const val ACTION_ALERT_UPDATE = "com.example.pulseguard.ACTION_ALERT_UPDATE"
         const val EXTRA_ALERT_ACTIVE = "extra_alert_active"
         const val EXTRA_COUNTDOWN = "extra_countdown"
+        const val ACTION_CANCEL_ALERT = "com.example.pulseguard.ACTION_CANCEL_ALERT"
+        const val ACTION_SEND_HELP_NOW = "com.example.pulseguard.ACTION_SEND_HELP_NOW"
 
     }
 
@@ -78,9 +80,10 @@ class HrForegroundService : Service() {
             onTick = { seconds ->
                 countdownSecondsReamaining = seconds
                 Log.d(TAG, "Alert countdown: $seconds")
-                // Later: update watch UI/notification
+                broadcastAlertState(active = true, countdown = seconds)
             },
             onEscalate = {
+                broadcastAlertState(active = false, countdown = 0)
                 sendEmergencyToPhone()
             }
         )
@@ -116,6 +119,7 @@ class HrForegroundService : Service() {
                     Log.d(TAG, "ALERT TRIGGERED: $event")
                     alertActive = true
 
+                    broadcastAlertState(active = true, countdown = countdownSecondsReamaining)
                     alertController.startCountdown()
                 }
 
@@ -189,6 +193,7 @@ class HrForegroundService : Service() {
         broadcastStatus(bpm = null, running = false)
         alertController.cancel()
         alertActive = false
+        broadcastAlertState(active = false, countdown = 0)
         stopSelf()
     }
 
@@ -201,6 +206,7 @@ class HrForegroundService : Service() {
         serviceScope.cancel()
         alertController.cancel()
         alertActive = false
+        broadcastAlertState(active = false, countdown = 0)
         super.onDestroy()
     }
 
@@ -254,5 +260,14 @@ class HrForegroundService : Service() {
                 Log.e(TAG, " Failed to send emergency alert", t)
             }
         }
+    }
+
+    private fun broadcastAlertState(active: Boolean, countdown: Int) {
+        val intent = Intent(ACTION_ALERT_UPDATE).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_ALERT_ACTIVE, active)
+            putExtra(EXTRA_COUNTDOWN, countdown)
+        }
+        sendBroadcast(intent)
     }
 }
