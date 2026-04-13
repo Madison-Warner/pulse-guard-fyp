@@ -56,6 +56,8 @@ class HrForegroundService : Service() {
     private lateinit var alertController: AlertController
     private var alertActive = false
     private var countdownSecondsReamaining: Int = 0
+    private var alertsMutedUntil = 0L
+
 
     override fun onCreate() {
         super.onCreate()
@@ -115,7 +117,7 @@ class HrForegroundService : Service() {
                 // Update UI broadcast (raw BPM still ok for now)
                 broadcastStatus(bpm = bpm, running = true)
 
-                if(event != 0 && !alertActive) {
+                if(event != 0 && !alertActive && !alertsMuted()) {
                     Log.d(TAG, "ALERT TRIGGERED: $event")
                     alertActive = true
 
@@ -163,9 +165,17 @@ class HrForegroundService : Service() {
 
         if (intent?.action == ACTION_CANCEL_ALERT) {
             Log.d(TAG, "ACTION_CANCEL_ALERT received")
+
             alertController.cancel()
             alertActive = false
+
+            // Mute alerts for 60 seconds after user says they are OK
+            alertsMutedUntil = System.currentTimeMillis() + 300_000L
+
             broadcastAlertState(active = false, countdown = 0)
+
+            sendAlertCancelledToPhone()
+
             return START_STICKY
         }
 
@@ -269,5 +279,28 @@ class HrForegroundService : Service() {
             putExtra(EXTRA_COUNTDOWN, countdown)
         }
         sendBroadcast(intent)
+    }
+
+    private fun alertsMuted(): Boolean {
+        return System.currentTimeMillis() < alertsMutedUntil
+    }
+
+    private fun sendAlertCancelledToPhone() {
+        val payload = """
+            {
+                "type": "alert_cancelled",
+                "timestamp": ${System.currentTimeMillis()}
+            }
+        """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(payload)
+                Log.d(TAG, "Emergency alert cancelled on phone")
+                alertActive = false
+            } catch (t: Throwable) {
+                Log.e(TAG, " Failed to cancel emergency alert on phone", t)
+            }
+        }
     }
 }

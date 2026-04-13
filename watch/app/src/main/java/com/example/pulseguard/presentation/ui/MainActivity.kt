@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -170,27 +171,42 @@ private fun PulseGuardScreen(
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    androidx.wear.compose.material.Scaffold(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text(
-            text = if (isRunning) "Service: RUNNING" else "Service: STOPPED"
-        )
-        Text(
-            text = "BPM: ${bpm ?: "--"}",
-            modifier = Modifier.padding(top = 6.dp)
-        )
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        androidx.wear.compose.foundation.lazy.ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color.Black)
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Button(onClick = onStart, enabled = !isRunning) {
-                Text("Start")
+            item {
+                Text(
+                    text = if (isRunning) "Service: RUNNING" else "Service: STOPPED",
+                    color = androidx.compose.ui.graphics.Color.White
+                )
             }
-            Button(onClick = onStop, enabled = isRunning) {
-                Text("Stop")
+
+            item {
+                Text(
+                    text = "BPM: ${bpm ?: "--"}",
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
+
+            item {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(onClick = onStart, enabled = !isRunning) {
+                        Text("Start")
+                    }
+                    Button(onClick = onStop, enabled = isRunning) {
+                        Text("Stop")
+                    }
+                }
             }
         }
     }
@@ -202,48 +218,58 @@ fun AlertScreen(
     onCancel: () -> Unit,
     onSendNow: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+    androidx.wear.compose.material.Scaffold(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text(
-            text = "Emergency Alert",
-            style = MaterialTheme.typography.title1
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Abnormal heart rate detected",
-            style = MaterialTheme.typography.body1
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Countdown: $countdown",
-            style = MaterialTheme.typography.title2
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            onClick = onCancel,
-            modifier = Modifier.fillMaxWidth()
+        androidx.wear.compose.foundation.lazy.ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color.Black)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("I'm OK")
-        }
+            item {
+                Text(
+                    text = "Emergency Alert",
+                    style = MaterialTheme.typography.title1,
+                    color = androidx.compose.ui.graphics.Color.Red
+                )
+            }
 
-        Spacer(modifier = Modifier.height(8.dp))
+            item {
+                Text(
+                    text = "Abnormal heart rate detected",
+                    style = MaterialTheme.typography.body2,
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
 
-        Button(
-            onClick = onSendNow,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Send Help Now")
+            item {
+                Text(
+                    text = "Countdown: $countdown",
+                    style = MaterialTheme.typography.title2,
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
+
+            item {
+                Button(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("I'm OK")
+                }
+            }
+
+            item {
+                Button(
+                    onClick = onSendNow,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Send Help Now")
+                }
+            }
         }
     }
 }
