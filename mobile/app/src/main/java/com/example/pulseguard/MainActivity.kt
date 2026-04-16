@@ -1,53 +1,50 @@
 package com.example.pulseguard
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.telephony.SmsManager
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.example.pulseguard.auth.AuthManager
-import com.example.pulseguard.comms.HrLiveBus
-import com.example.pulseguard.comms.HrUiState
-import com.example.pulseguard.emergency.EmergencyContactRepository
-import com.example.pulseguard.model.EmergencyContact
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.example.pulseguard.auth.*
+import com.example.pulseguard.comms.*
+import com.example.pulseguard.emergency.*
+import com.example.pulseguard.model.*
 import kotlinx.coroutines.launch
+
 
 class MainActivity : ComponentActivity() {
     private val authManager = AuthManager()
     private val contactRepository = EmergencyContactRepository()
+    private lateinit var phoneToWatchSender: PhoneToWatchSender
+    private var onSmsPermissionGranted: (()->Unit)? = null
+    private val smsPermissionLauncher=
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if(granted) {
+                onSmsPermissionGranted?.invoke()
+            }
+        }
+    private lateinit var smsHelper: SmsHelper
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        phoneToWatchSender = PhoneToWatchSender(this)
+
+        smsHelper = SmsHelper(this)
 
         setContent {
             val hrState by HrLiveBus.state.collectAsState()
@@ -58,25 +55,100 @@ class MainActivity : ComponentActivity() {
                 color = MaterialTheme.colorScheme.background
             ) {
                 if (loggedIn) {
-                    HrDashboard(
-                        state = hrState,
-                        email = authManager.currentUser()?.email ?: "Unknown user",
-                        onLogout = {
-                            authManager.signOut()
-                            loggedIn = false
-                        },
-                        contactRepository = contactRepository
-                    )
+                    if (hrState.alertActive) {
+                        MobileAlertScreen(
+                            message = hrState.alertMessage,
+                            onDismiss = {
+                                val current = HrLiveBus.state.value
+                                HrLiveBus.post(
+                                    current.copy(
+                                        alertActive = false,
+                                        alertMessage = ""
+                                    )
+                                )
+
+                                lifecycleScope.launch {
+                                    phoneToWatchSender.send(
+                                        """{"type":"alert_cancelled","timestamp":${System.currentTimeMillis()}}"""
+                                    )
+                                }
+                            },
+                            onSendHelpNow = {
+                                val current = HrLiveBus.state.value
+                                val emergencyMessage = "PulseGuard emergency alert: abnormal heart rate detected. Please check on me immediately."
+                                HrLiveBus.post(
+                                    current.copy(
+                                        alertMessage = "Sending help now..."
+                                    )
+                                )
+
+                                sendEmergencySmsToContacts(
+                                    contactRepository = contactRepository,
+                                    message = emergencyMessage
+                                )
+
+                                lifecycleScope.launch {
+                                    phoneToWatchSender.send(
+                                        """{"type":"alert_escalate","timestamp":${System.currentTimeMillis()}}"""
+                                    )
+                                }
+
+                                // Temporary placeholder until SMS is wired:
+                                Log.d("MainActivity", "Send Help Now pressed")
+                            }
+                        )
+                    } else {
+                        HrDashboard(
+                            state = hrState,
+                            email = authManager.currentUser()?.email ?: "Unknown user",
+                            onLogout = {
+                                authManager.signOut()
+                                loggedIn = false
+                            },
+                            contactRepository = contactRepository
+                        )
+                    }
+
                 } else {
                     LoginScreen(
                         onLoginSuccess = { loggedIn = true },
                         authManager = authManager
-
                     )
                 }
             }
         }
     }
+
+    private fun ensureSmsPermissionThen(onGranted: ()-> Unit){
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.SEND_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if(granted) {
+            onGranted()
+        } else {
+            smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+        }
+    }
+
+    private fun sendEmergencySmsToContacts(
+        contactRepository: EmergencyContactRepository,
+        message: String
+    ){
+        ensureSmsPermissionThen {
+            lifecycleScope.launch {
+                try {
+                    val contacts = contactRepository.getContacts()
+
+                    contacts.forEach { contact -> smsHelper.sendSms(contact.phoneNumber, message) }
+                } catch(t: Throwable) {
+                    android.util.Log.e("MainActivity", "Failed to send emergency SMS", t)
+                }
+            }
+        }
+    }
+
 }
 
 @Composable
@@ -418,6 +490,57 @@ fun ContactRow(
 
         Button(onClick = onDelete) {
             Text("Delete")
+        }
+    }
+}
+
+@Composable
+fun MobileAlertScreen(
+    message: String,
+    onDismiss: () -> Unit,
+    onSendHelpNow: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF2B0000)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "EMERGENCY ALERT",
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.Red
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = message,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("I'm OK - Cancel Alert")
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = onSendHelpNow,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Send Help Now")
+            }
         }
     }
 }

@@ -55,7 +55,7 @@ class HrForegroundService : Service() {
     // Alert Controller
     private lateinit var alertController: AlertController
     private var alertActive = false
-    private var countdownSecondsReamaining: Int = 0
+    private var countdownSecondsRemaining: Int = 0
     private var alertsMutedUntil = 0L
 
 
@@ -65,7 +65,7 @@ class HrForegroundService : Service() {
 
         repo = HeartRateRepository(this)
         edge = AnomalyProcessor()
-        bleSender = com.example.pulseguard.ble.BleSender(this)
+        bleSender = BleSender(this)
 
         createNotificationChannel()
         // Failed Samsung Sensor Manger
@@ -80,13 +80,14 @@ class HrForegroundService : Service() {
 
         alertController = AlertController(
             onTick = { seconds ->
-                countdownSecondsReamaining = seconds
+                countdownSecondsRemaining = seconds
                 Log.d(TAG, "Alert countdown: $seconds")
                 broadcastAlertState(active = true, countdown = seconds)
             },
             onEscalate = {
                 broadcastAlertState(active = false, countdown = 0)
-                sendEmergencyToPhone()
+                sendAlertEscalateToPhone()
+                alertActive = false
             }
         )
 
@@ -121,7 +122,10 @@ class HrForegroundService : Service() {
                     Log.d(TAG, "ALERT TRIGGERED: $event")
                     alertActive = true
 
-                    broadcastAlertState(active = true, countdown = countdownSecondsReamaining)
+                    // Tell phone to show alert screen immediately
+                    sendAlertStartedToPhone()
+
+                    broadcastAlertState(active = true, countdown = countdownSecondsRemaining)
                     alertController.startCountdown()
                 }
 
@@ -255,7 +259,7 @@ class HrForegroundService : Service() {
     private fun sendEmergencyToPhone() {
         val json = """
             {
-            "type":"ALERT",
+            "type":"alert",
             "ts":${System.currentTimeMillis()},
             "countdownExpired":true
             }
@@ -300,6 +304,44 @@ class HrForegroundService : Service() {
                 alertActive = false
             } catch (t: Throwable) {
                 Log.e(TAG, " Failed to cancel emergency alert on phone", t)
+            }
+        }
+    }
+
+    private fun sendAlertStartedToPhone() {
+        val payload = """
+        {
+            "type":"alert_started",
+            "ts":${System.currentTimeMillis()},
+            "event":$lastEvent
+        }
+    """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(payload)
+                Log.d(TAG, "Alert started sent to phone")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to send alert_started", t)
+            }
+        }
+    }
+
+    private fun sendAlertEscalateToPhone() {
+        val payload = """
+        {
+            "type":"alert_escalate",
+            "ts":${System.currentTimeMillis()},
+            "event":$lastEvent
+        }
+    """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(payload)
+                Log.d(TAG, "Alert escalation sent to phone")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to send alert_escalate", t)
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.example.pulseguard.comms
 
 import android.util.Log
+import com.example.pulseguard.R
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
 import org.json.JSONObject
@@ -19,34 +20,66 @@ class HrListenerService: WearableListenerService() {
     override fun onMessageReceived(messageEvent: MessageEvent) {
         super.onMessageReceived(messageEvent)
 
-        Log.d(TAG, "onMessageReceived path=${messageEvent.path}")
-
         if (messageEvent.path != PATH_HR) return
 
         val json = String(messageEvent.data, Charsets.UTF_8)
-
-        if (json.contains("\"type\":\"ALERT\"")) {
-            Log.d(TAG, "ALERT RECEIVED: $json")
-            showEmergencyNotification()
-            return
-        }
-
-        Log.d(TAG, "HR RECEIVED: $json")
+        Log.d(TAG, "Received:$json")
 
         try {
             val obj = JSONObject(json)
+            val type = obj.optString("type", "hr_data")
+            when (type) {
+                "hr_data" -> {
+                    val current = HrLiveBus.state.value
 
-            val state = HrUiState(
-                timestamp = obj.optLong("ts", 0L),
-                rawBpm = obj.optInt("raw", 0),
-                filteredBpm = obj.optInt("filtered", 0),
-                eventCode = obj.optInt("event", 0),
-                connected = true
-            )
+                    HrLiveBus.post(
+                        current.copy(
+                            timestamp = obj.optLong("ts", 0L),
+                            rawBpm = obj.optInt("raw", 0),
+                            filteredBpm = obj.optInt("filtered", 0),
+                            eventCode = obj.optInt("event", 0),
+                            connected = true
+                        )
+                    )
+                }
 
-            HrLiveBus.post(state)
+                "alert_started" -> {
+                    val current = HrLiveBus.state.value
+                    HrLiveBus.post(
+                        current.copy(
+                            alertActive = true,
+                            alertMessage = "Abnormal heart rate detected"
+                        )
+                    )
+                    Log.d(TAG, "Phone alert started")
+                }
+
+                "alert_cancelled" -> {
+                    val current = HrLiveBus.state.value
+                    HrLiveBus.post(
+                        current.copy(
+                            alertActive = false,
+                            alertMessage = ""
+                        )
+                    )
+                    Log.d(TAG, "Phone alert cancelled")
+                }
+
+                "alert_escalate" -> {
+                    val current = HrLiveBus.state.value
+                    HrLiveBus.post(
+                        current.copy(
+                            alertActive = true,
+                            alertMessage = "Emergency escalation triggered"
+                        )
+                    )
+
+                    // later: notification + SMS
+                    Log.d(TAG, "Phone alert escalated")
+                }
+            }
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to parse HR JSON", t)
+            Log.e(TAG, "Failed to parse incoming message", t)
         }
     }
 
@@ -66,7 +99,7 @@ class HrListenerService: WearableListenerService() {
         val notification = androidx.core.app.NotificationCompat.Builder(this, channelId)
             .setContentTitle("PulseGuard Emergency Alert")
             .setContentText("Abnormal heart rate detected. Escalation required.")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()

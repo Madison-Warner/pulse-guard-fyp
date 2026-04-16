@@ -8,7 +8,11 @@ data class HrUiState(
     val rawBpm: Int = 0,
     val filteredBpm: Int = 0,
     val eventCode: Int = 0,
-    val connected: Boolean = false
+    val connected: Boolean = false,
+
+    // Alert fields
+    val alertActive: Boolean = false,
+    val alertMessage: String = ""
 )
 
 object HrLiveBus {
@@ -17,5 +21,9 @@ object HrLiveBus {
 
     fun post(state:HrUiState) {
         _state.value = state
+    }
+
+    fun clearAlert() {
+        _state.value = HrUiState()
     }
 }
