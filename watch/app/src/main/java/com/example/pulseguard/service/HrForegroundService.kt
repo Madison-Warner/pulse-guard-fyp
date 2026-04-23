@@ -57,6 +57,7 @@ class HrForegroundService : Service() {
     private var alertActive = false
     private var countdownSecondsRemaining: Int = 0
     private var alertsMutedUntil = 0L
+    private var awaitingRecovery = false
 
 
     override fun onCreate() {
@@ -88,6 +89,7 @@ class HrForegroundService : Service() {
                 broadcastAlertState(active = false, countdown = 0)
                 sendAlertEscalateToPhone()
                 alertActive = false
+                awaitingRecovery = true
             }
         )
 
@@ -118,7 +120,7 @@ class HrForegroundService : Service() {
                 // Update UI broadcast (raw BPM still ok for now)
                 broadcastStatus(bpm = bpm, running = true)
 
-                if(event != 0 && !alertActive && !alertsMuted()) {
+                if(event != 0 && !alertActive && !awaitingRecovery && !alertsMuted()) {
                     Log.d(TAG, "ALERT TRIGGERED: $event")
                     alertActive = true
 
@@ -129,8 +131,13 @@ class HrForegroundService : Service() {
                     alertController.startCountdown()
                 }
 
-                if (event == 0 && alertActive && !alertController.isActive()){
+                if (event == 0 && alertActive && !alertController.isActive()) {
                     alertActive = false
+                }
+
+                if (event == 0 && awaitingRecovery) {
+                    Log.d(TAG, "Condition recovered - rearming alerts")
+                    awaitingRecovery = false
                 }
 
             }
@@ -185,10 +192,15 @@ class HrForegroundService : Service() {
 
         if (intent?.action == ACTION_SEND_HELP_NOW) {
             Log.d(TAG, "ACTION_SEND_HELP_NOW received")
+
             alertController.cancel()
             alertActive = false
+            awaitingRecovery = true
+
             broadcastAlertState(active = false, countdown = 0)
-            sendEmergencyToPhone()
+
+            sendAlertEscalateToPhone()
+
             return START_STICKY
         }
 

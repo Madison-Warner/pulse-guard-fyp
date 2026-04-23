@@ -45,13 +45,15 @@ class HrListenerService: WearableListenerService() {
 
                 "alert_started" -> {
                     val current = HrLiveBus.state.value
-                    HrLiveBus.post(
-                        current.copy(
-                            alertActive = true,
-                            alertMessage = "Abnormal heart rate detected"
+                    if (!current.escalationHandled) {
+                        HrLiveBus.post(
+                            current.copy(
+                                alertActive = true,
+                                alertMessage = "Abnormal heart rate detected"
+                            )
                         )
-                    )
-                    Log.d(TAG, "Phone alert started")
+                        Log.d(TAG, "Phone alert started")
+                    }
                 }
 
                 "alert_cancelled" -> {
@@ -59,7 +61,9 @@ class HrListenerService: WearableListenerService() {
                     HrLiveBus.post(
                         current.copy(
                             alertActive = false,
-                            alertMessage = ""
+                            alertMessage = "",
+                            escalationRequested = false,
+                            escalationHandled = false
                         )
                     )
                     Log.d(TAG, "Phone alert cancelled")
@@ -67,10 +71,12 @@ class HrListenerService: WearableListenerService() {
 
                 "alert_escalate" -> {
                     val current = HrLiveBus.state.value
+
                     HrLiveBus.post(
                         current.copy(
                             alertActive = true,
-                            alertMessage = "Emergency escalation triggered"
+                            alertMessage = "Emergency escalation triggered",
+                            escalationRequested = true,
                         )
                     )
 
