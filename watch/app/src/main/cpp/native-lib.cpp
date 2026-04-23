@@ -10,9 +10,9 @@ namespace {
     static int ringIndex = 0;
 
     // --- Detection config (tweak later) ---
-    static constexpr int kTachyThreshold = 120; // To force Tachy use 80
-    static constexpr int kBradyThreshold = 45;  // To force Brady use 80
-    static constexpr int64_t kPersistMillis = 15000;
+    static constexpr int kTachyThreshold = 80; // To force Tachy use 80 else 120
+    static constexpr int kBradyThreshold = 45;  // To force Brady use 80 else 45
+    static constexpr int64_t kPersistMillis = 3000;
 
     // --- State ---
     static int gLastFiltered = 0;

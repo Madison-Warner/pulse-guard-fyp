@@ -1,10 +1,7 @@
 package com.example.pulseguard.presentation.ui
 
 import android.Manifest
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.content.*
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -12,25 +9,18 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.startForegroundService
-import androidx.wear.compose.material.Button
-import androidx.wear.compose.material.MaterialTheme
-import androidx.wear.compose.material.Text
+import androidx.wear.compose.material.*
 import com.example.pulseguard.service.HrForegroundService
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 
 private fun requiredHrPermission(): String = Manifest.permission.BODY_SENSORS
@@ -50,23 +40,45 @@ class MainActivity : ComponentActivity() {
         setContent {
             var isRunning by remember { mutableStateOf(false) }
             var bpm by remember { mutableStateOf<Int?>(null) }
+            var alertActive by remember { mutableStateOf(false) }
+            var countdown by remember { mutableIntStateOf(0) }
 
             DisposableEffect(Unit) {
                 val receiver = object : BroadcastReceiver() {
                     override fun onReceive(context: Context, intent: Intent) {
-                        if (intent.action == HrForegroundService.ACTION_HR_UPDATE){
-                            isRunning = intent.getBooleanExtra(
-                                HrForegroundService.EXTRA_RUNNING,
-                                false
-                            )
-                            if (intent.hasExtra(HrForegroundService.EXTRA_BPM)) {
-                                val value = intent.getIntExtra(HrForegroundService.EXTRA_BPM, -1)
-                                bpm = value.takeIf { it > 0 }
+                        when (intent.action) {
+                            HrForegroundService.ACTION_HR_UPDATE -> {
+                                isRunning = intent.getBooleanExtra(
+                                    HrForegroundService.EXTRA_RUNNING,
+                                    false
+                                )
+
+                                if (intent.hasExtra(HrForegroundService.EXTRA_BPM)) {
+                                    val value = intent.getIntExtra(
+                                        HrForegroundService.EXTRA_BPM,
+                                        -1
+                                    )
+                                    bpm = value.takeIf { it > 0 }
+                                }
+                            }
+
+                            HrForegroundService.ACTION_ALERT_UPDATE -> {
+                                alertActive = intent.getBooleanExtra(
+                                    HrForegroundService.EXTRA_ALERT_ACTIVE,
+                                    false
+                                )
+                                countdown = intent.getIntExtra(
+                                    HrForegroundService.EXTRA_COUNTDOWN,
+                                    0
+                                )
                             }
                         }
                     }
                 }
-                val filter = IntentFilter(HrForegroundService.ACTION_HR_UPDATE)
+                val filter = IntentFilter().apply {
+                    addAction(HrForegroundService.ACTION_HR_UPDATE)
+                    addAction(HrForegroundService.ACTION_ALERT_UPDATE)
+                }
 
                 val flags = if (Build.VERSION.SDK_INT >= 33) {
                     Context.RECEIVER_NOT_EXPORTED
@@ -79,12 +91,20 @@ class MainActivity : ComponentActivity() {
             }
 
             MaterialTheme{
-                PulseGuardScreen(
-                    isRunning = isRunning,
-                    bpm = bpm,
-                    onStart = { ensureSensorsPermissionThen { startHrService() } },
-                    onStop = { stopHrService() }
-                )
+                if (alertActive) {
+                    AlertScreen(
+                        countdown = countdown,
+                        onCancel = { sendCancelAlertIntent() },
+                        onSendNow = { sendHelpNowIntent() }
+                    )
+                } else {
+                    PulseGuardScreen(
+                        isRunning = isRunning,
+                        bpm = bpm,
+                        onStart = { ensureSensorsPermissionThen { startHrService() } },
+                        onStop = { stopHrService() }
+                    )
+                }
             }
         }
     }
@@ -113,6 +133,20 @@ class MainActivity : ComponentActivity() {
         }
         startService(intent)
     }
+
+    private fun sendCancelAlertIntent() {
+        val intent = Intent(this, HrForegroundService::class.java).apply {
+            action = HrForegroundService.ACTION_CANCEL_ALERT
+        }
+        startForegroundService(this, intent)
+    }
+
+    private fun sendHelpNowIntent() {
+        val intent = Intent(this, HrForegroundService::class.java).apply {
+            action = HrForegroundService.ACTION_SEND_HELP_NOW
+        }
+        startForegroundService(this, intent)
+    }
 }
 
 @Composable
@@ -122,22 +156,105 @@ private fun PulseGuardScreen(
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    androidx.wear.compose.material.Scaffold(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Text(
-            text = if (isRunning) "Service: RUNNING" else "Service: STOPPED"
-        )
-        Text(
-            text = "BPM: ${bpm ?: "--"}",
-            modifier = Modifier.padding(top = 6.dp)
-        )
+        androidx.wear.compose.foundation.lazy.ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color.Black)
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Text(
+                    text = if (isRunning) "Service: RUNNING" else "Service: STOPPED",
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onStart, enabled = !isRunning) { Text("Start") }
-            Button(onClick = onStop, enabled = isRunning) { Text("Stop")}
+            item {
+                Text(
+                    text = "BPM: ${bpm ?: "--"}",
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
+
+            item {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(onClick = onStart, enabled = !isRunning) {
+                        Text("Start")
+                    }
+                    Button(onClick = onStop, enabled = isRunning) {
+                        Text("Stop")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AlertScreen(
+    countdown: Int,
+    onCancel: () -> Unit,
+    onSendNow: () -> Unit
+) {
+    androidx.wear.compose.material.Scaffold(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        androidx.wear.compose.foundation.lazy.ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color.Black)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Text(
+                    text = "Emergency Alert",
+                    style = MaterialTheme.typography.title1,
+                    color = androidx.compose.ui.graphics.Color.Red
+                )
+            }
+
+            item {
+                Text(
+                    text = "Abnormal heart rate detected",
+                    style = MaterialTheme.typography.body2,
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
+
+            item {
+                Text(
+                    text = "Countdown: $countdown",
+                    style = MaterialTheme.typography.title2,
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            }
+
+            item {
+                Button(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("I'm OK")
+                }
+            }
+
+            item {
+                Button(
+                    onClick = onSendNow,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Send Help Now")
+                }
+            }
         }
     }
 }

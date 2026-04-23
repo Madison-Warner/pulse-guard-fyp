@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.pulseguard.alert.AlertController
 import com.example.pulseguard.ble.BleSender
 import com.example.pulseguard.data.HeartRateRepository
 import com.example.pulseguard.sensor.AndroidHeartRateSensor
@@ -26,6 +27,12 @@ class HrForegroundService : Service() {
         const val ACTION_HR_UPDATE = "com.example.pulseguard.ACTION_HR_UPDATE"
         const val EXTRA_BPM = "extra_bpm"
         const val EXTRA_RUNNING = "extra_running"
+        const val ACTION_ALERT_UPDATE = "com.example.pulseguard.ACTION_ALERT_UPDATE"
+        const val EXTRA_ALERT_ACTIVE = "extra_alert_active"
+        const val EXTRA_COUNTDOWN = "extra_countdown"
+        const val ACTION_CANCEL_ALERT = "com.example.pulseguard.ACTION_CANCEL_ALERT"
+        const val ACTION_SEND_HELP_NOW = "com.example.pulseguard.ACTION_SEND_HELP_NOW"
+
     }
 
     // Failed Samsung Sensor Manger
@@ -36,12 +43,22 @@ class HrForegroundService : Service() {
     private lateinit var repo: HeartRateRepository
     private var sensorStarted = false
 
-
+    // Edge Processor
     private lateinit var edge: AnomalyProcessor
     private var  lastFiltered: Int = 0
     private var lastEvent: Int = AnomalyProcessor.EVENT_NONE
+
+    // BLE
     private lateinit var bleSender: BleSender
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Alert Controller
+    private lateinit var alertController: AlertController
+    private var alertActive = false
+    private var countdownSecondsRemaining: Int = 0
+    private var alertsMutedUntil = 0L
+    private var awaitingRecovery = false
+
 
     override fun onCreate() {
         super.onCreate()
@@ -49,7 +66,7 @@ class HrForegroundService : Service() {
 
         repo = HeartRateRepository(this)
         edge = AnomalyProcessor()
-        bleSender = com.example.pulseguard.ble.BleSender(this)
+        bleSender = BleSender(this)
 
         createNotificationChannel()
         // Failed Samsung Sensor Manger
@@ -61,6 +78,21 @@ class HrForegroundService : Service() {
             }
         )
         */
+
+        alertController = AlertController(
+            onTick = { seconds ->
+                countdownSecondsRemaining = seconds
+                Log.d(TAG, "Alert countdown: $seconds")
+                broadcastAlertState(active = true, countdown = seconds)
+            },
+            onEscalate = {
+                broadcastAlertState(active = false, countdown = 0)
+                sendAlertEscalateToPhone()
+                alertActive = false
+                awaitingRecovery = true
+            }
+        )
+
         // Android SensorManager
         androidHRSensor = AndroidHeartRateSensor(
             context = this,
@@ -87,6 +119,27 @@ class HrForegroundService : Service() {
 
                 // Update UI broadcast (raw BPM still ok for now)
                 broadcastStatus(bpm = bpm, running = true)
+
+                if(event != 0 && !alertActive && !awaitingRecovery && !alertsMuted()) {
+                    Log.d(TAG, "ALERT TRIGGERED: $event")
+                    alertActive = true
+
+                    // Tell phone to show alert screen immediately
+                    sendAlertStartedToPhone()
+
+                    broadcastAlertState(active = true, countdown = countdownSecondsRemaining)
+                    alertController.startCountdown()
+                }
+
+                if (event == 0 && alertActive && !alertController.isActive()) {
+                    alertActive = false
+                }
+
+                if (event == 0 && awaitingRecovery) {
+                    Log.d(TAG, "Condition recovered - rearming alerts")
+                    awaitingRecovery = false
+                }
+
             }
         )
 
@@ -121,6 +174,36 @@ class HrForegroundService : Service() {
             }
         }
 
+        if (intent?.action == ACTION_CANCEL_ALERT) {
+            Log.d(TAG, "ACTION_CANCEL_ALERT received")
+
+            alertController.cancel()
+            alertActive = false
+
+            // Mute alerts for 60 seconds after user says they are OK
+            alertsMutedUntil = System.currentTimeMillis() + 300_000L
+
+            broadcastAlertState(active = false, countdown = 0)
+
+            sendAlertCancelledToPhone()
+
+            return START_STICKY
+        }
+
+        if (intent?.action == ACTION_SEND_HELP_NOW) {
+            Log.d(TAG, "ACTION_SEND_HELP_NOW received")
+
+            alertController.cancel()
+            alertActive = false
+            awaitingRecovery = true
+
+            broadcastAlertState(active = false, countdown = 0)
+
+            sendAlertEscalateToPhone()
+
+            return START_STICKY
+        }
+
         // Keep running unless it is explicitly stopped
         return START_NOT_STICKY
     }
@@ -134,6 +217,9 @@ class HrForegroundService : Service() {
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
         broadcastStatus(bpm = null, running = false)
+        alertController.cancel()
+        alertActive = false
+        broadcastAlertState(active = false, countdown = 0)
         stopSelf()
     }
 
@@ -144,6 +230,9 @@ class HrForegroundService : Service() {
             sensorStarted = false
         } catch (_: Throwable) {}
         serviceScope.cancel()
+        alertController.cancel()
+        alertActive = false
+        broadcastAlertState(active = false, countdown = 0)
         super.onDestroy()
     }
 
@@ -177,5 +266,95 @@ class HrForegroundService : Service() {
             if (bpm != null) putExtra(EXTRA_BPM, bpm)
         }
         sendBroadcast(intent)
+    }
+
+    private fun sendEmergencyToPhone() {
+        val json = """
+            {
+            "type":"alert",
+            "ts":${System.currentTimeMillis()},
+            "countdownExpired":true
+            }
+        """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(json)
+                Log.d(TAG, "Emergency alert sent to phone")
+                alertActive = false
+            } catch (t: Throwable) {
+                Log.e(TAG, " Failed to send emergency alert", t)
+            }
+        }
+    }
+
+    private fun broadcastAlertState(active: Boolean, countdown: Int) {
+        val intent = Intent(ACTION_ALERT_UPDATE).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_ALERT_ACTIVE, active)
+            putExtra(EXTRA_COUNTDOWN, countdown)
+        }
+        sendBroadcast(intent)
+    }
+
+    private fun alertsMuted(): Boolean {
+        return System.currentTimeMillis() < alertsMutedUntil
+    }
+
+    private fun sendAlertCancelledToPhone() {
+        val payload = """
+            {
+                "type": "alert_cancelled",
+                "timestamp": ${System.currentTimeMillis()}
+            }
+        """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(payload)
+                Log.d(TAG, "Emergency alert cancelled on phone")
+                alertActive = false
+            } catch (t: Throwable) {
+                Log.e(TAG, " Failed to cancel emergency alert on phone", t)
+            }
+        }
+    }
+
+    private fun sendAlertStartedToPhone() {
+        val payload = """
+        {
+            "type":"alert_started",
+            "ts":${System.currentTimeMillis()},
+            "event":$lastEvent
+        }
+    """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(payload)
+                Log.d(TAG, "Alert started sent to phone")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to send alert_started", t)
+            }
+        }
+    }
+
+    private fun sendAlertEscalateToPhone() {
+        val payload = """
+        {
+            "type":"alert_escalate",
+            "ts":${System.currentTimeMillis()},
+            "event":$lastEvent
+        }
+    """.trimIndent()
+
+        serviceScope.launch {
+            try {
+                bleSender.send(payload)
+                Log.d(TAG, "Alert escalation sent to phone")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to send alert_escalate", t)
+            }
+        }
     }
 }
