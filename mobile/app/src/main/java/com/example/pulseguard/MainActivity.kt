@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
                     val current = HrLiveBus.state.value
                     HrLiveBus.post(
                         current.copy(
+                            alertActive = false,
                             escalationHandled = true,
                             escalationRequested = false,
                             alertMessage = "Emergency SMS sent"
@@ -130,9 +131,11 @@ class MainActivity : ComponentActivity() {
                             },
                             onSendHelpNow = {
                                 val current = HrLiveBus.state.value
-                                
+
                                 HrLiveBus.post(
                                     current.copy(
+                                        alertActive = false,
+                                        alertMessage = "Emergency response sent",
                                         escalationRequested = true
                                     )
                                 )
@@ -190,7 +193,7 @@ class MainActivity : ComponentActivity() {
 
                     contacts.forEach { contact -> smsHelper.sendSms(contact.phoneNumber, message) }
                 } catch(t: Throwable) {
-                    android.util.Log.e("MainActivity", "Failed to send emergency SMS", t)
+                    Log.e("MainActivity", "Failed to send emergency SMS", t)
                 }
             }
         }
