@@ -40,6 +40,16 @@ class WatchMessageListenerService : WearableListenerService() {
 
                     startForegroundService(intent)
                 }
+
+                "alert_escalate" -> {
+                    Log.d(TAG, "Phone requested emergency escalation")
+
+                    val intent = Intent(this, HrForegroundService::class.java).apply {
+                        action = HrForegroundService.ACTION_SEND_HELP_NOW
+                    }
+
+                    startForegroundService(intent)
+                }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to parse phone message", t)

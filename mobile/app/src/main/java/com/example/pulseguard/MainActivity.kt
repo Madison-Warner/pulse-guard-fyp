@@ -3,6 +3,7 @@ package com.example.pulseguard
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,8 +24,10 @@ import androidx.lifecycle.lifecycleScope
 import com.example.pulseguard.auth.*
 import com.example.pulseguard.comms.*
 import com.example.pulseguard.emergency.*
+import com.example.pulseguard.logs.*
 import com.example.pulseguard.model.*
 import kotlinx.coroutines.launch
+
 
 
 class MainActivity : ComponentActivity() {
@@ -39,6 +42,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     private lateinit var smsHelper: SmsHelper
+    private lateinit var hrLogRepository: HrLogRepository
+
+    private lateinit var hrLogAggregator: HrLogAggregator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,8 +53,35 @@ class MainActivity : ComponentActivity() {
 
         smsHelper = SmsHelper(this)
 
+        hrLogRepository = HrLogRepository()
+
+        hrLogAggregator = HrLogAggregator(bucketDurationMillis = 20 * 60 * 1000L) //10_000L For testing purpose
+
         setContent {
             val hrState by HrLiveBus.state.collectAsState()
+
+            LaunchedEffect(hrState.timestamp, hrState.filteredBpm) {
+                Log.d("HrLogs", "Sample received ts=${hrState.timestamp}, bpm=${hrState.filteredBpm}")
+
+                if (hrState.timestamp > 0 && hrState.filteredBpm > 0) {
+                    val completedBucket = hrLogAggregator.addSample(
+                        timestamp = hrState.timestamp,
+                        bpm = hrState.filteredBpm
+                    )
+
+                    if (completedBucket != null) {
+                        try {
+                            Log.d("HrLogs", "Bucket ready: $completedBucket")
+                            hrLogRepository.saveBucket(completedBucket)
+                            hrLogRepository.deleteOlderThan24Hours()
+                            Log.d("HrLogs", "Bucket saved to Firestore")
+                        } catch (t: Throwable) {
+                            Log.e("HrLogs", "Failed to store HR log bucket", t)
+                        }
+                    }
+                }
+            }
+
             LaunchedEffect(hrState.escalationRequested, hrState.escalationHandled) {
                 if (hrState.escalationRequested && !hrState.escalationHandled) {
                     val emergencyMessage =
@@ -62,6 +95,7 @@ class MainActivity : ComponentActivity() {
                     val current = HrLiveBus.state.value
                     HrLiveBus.post(
                         current.copy(
+                            alertActive = false,
                             escalationHandled = true,
                             escalationRequested = false,
                             alertMessage = "Emergency SMS sent"
@@ -69,6 +103,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+
             var loggedIn by remember { mutableStateOf(authManager.currentUser() != null)}
 
             Surface(
@@ -96,8 +131,11 @@ class MainActivity : ComponentActivity() {
                             },
                             onSendHelpNow = {
                                 val current = HrLiveBus.state.value
+
                                 HrLiveBus.post(
                                     current.copy(
+                                        alertActive = false,
+                                        alertMessage = "Emergency response sent",
                                         escalationRequested = true
                                     )
                                 )
@@ -155,7 +193,7 @@ class MainActivity : ComponentActivity() {
 
                     contacts.forEach { contact -> smsHelper.sendSms(contact.phoneNumber, message) }
                 } catch(t: Throwable) {
-                    android.util.Log.e("MainActivity", "Failed to send emergency SMS", t)
+                    Log.e("MainActivity", "Failed to send emergency SMS", t)
                 }
             }
         }

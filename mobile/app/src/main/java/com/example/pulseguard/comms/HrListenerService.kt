@@ -74,9 +74,10 @@ class HrListenerService: WearableListenerService() {
 
                     HrLiveBus.post(
                         current.copy(
-                            alertActive = true,
+                            alertActive = false,
                             alertMessage = "Emergency escalation triggered",
                             escalationRequested = true,
+                            escalationHandled = false
                         )
                     )
 
