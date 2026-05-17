@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
 
         hrLogRepository = HrLogRepository()
 
-        hrLogAggregator = HrLogAggregator(bucketDurationMillis = 10_000L)
+        hrLogAggregator = HrLogAggregator(bucketDurationMillis = 20 * 60 * 1000L) //10_000L For testing purpose
 
         setContent {
             val hrState by HrLiveBus.state.collectAsState()
