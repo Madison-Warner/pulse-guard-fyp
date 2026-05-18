@@ -4,7 +4,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -16,7 +21,7 @@ import com.example.pulseguard.sensor.AndroidHeartRateSensor
 import com.example.pulseguard.processing.AnomalyProcessor
 import kotlinx.coroutines.*
 
-class HrForegroundService : Service() {
+class HrForegroundService : Service(), SensorEventListener {
     companion object {
         private const val TAG = "HrForegroundService"
         private const val CHANNEL_ID = "pulseguard_monitoring"
@@ -32,6 +37,7 @@ class HrForegroundService : Service() {
         const val EXTRA_COUNTDOWN = "extra_countdown"
         const val ACTION_CANCEL_ALERT = "com.example.pulseguard.ACTION_CANCEL_ALERT"
         const val ACTION_SEND_HELP_NOW = "com.example.pulseguard.ACTION_SEND_HELP_NOW"
+        const val ACTION_UPDATE_THRESHOLDS = "com.example.pulseguard.ACTION_UPDATE_THRESHOLDS"
 
     }
 
@@ -45,7 +51,6 @@ class HrForegroundService : Service() {
 
     // Edge Processor
     private lateinit var edge: AnomalyProcessor
-    private var  lastFiltered: Int = 0
     private var lastEvent: Int = AnomalyProcessor.EVENT_NONE
 
     // BLE
@@ -59,6 +64,15 @@ class HrForegroundService : Service() {
     private var alertsMutedUntil = 0L
     private var awaitingRecovery = false
 
+    // Algorithm + Activity Variables
+    private var tachyThreshold = 120
+    private var bradyThreshold = 45
+    private var currentStepsPerMinute = 0
+    private var currentTachyThreshold = 120
+    private var lastStepCount = -1f
+    private var lastStepTimestamp = 0L
+    private lateinit var sensorManager: SensorManager
+    private var stepSensor: Sensor? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -67,6 +81,17 @@ class HrForegroundService : Service() {
         repo = HeartRateRepository(this)
         edge = AnomalyProcessor()
         bleSender = BleSender(this)
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+
+        stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+
+        stepSensor?.also { sensor ->
+            sensorManager.registerListener(
+                this,
+                sensor,
+                SensorManager.SENSOR_DELAY_NORMAL
+            )
+        }
 
         createNotificationChannel()
         // Failed Samsung Sensor Manger
@@ -204,6 +229,30 @@ class HrForegroundService : Service() {
             return START_STICKY
         }
 
+        if (intent?.action == ACTION_UPDATE_THRESHOLDS) {
+
+            tachyThreshold =
+                intent.getIntExtra("tachy", 120)
+
+            bradyThreshold =
+                intent.getIntExtra("brady", 45)
+
+            Log.d(
+                TAG,
+                "Adaptive thresholds received " +
+                        "tachy=$tachyThreshold brady=$bradyThreshold"
+            )
+
+            // PUSH INTO NATIVE EDGE PROCESSOR
+            edge.nativeUpdateThresholds(
+                tachyThreshold,
+                bradyThreshold
+            )
+
+            Log.d(TAG, "Native thresholds updated successfully")
+            return START_STICKY
+        }
+
         // Keep running unless it is explicitly stopped
         return START_NOT_STICKY
     }
@@ -231,6 +280,7 @@ class HrForegroundService : Service() {
         } catch (_: Throwable) {}
         serviceScope.cancel()
         alertController.cancel()
+        sensorManager.unregisterListener(this)
         alertActive = false
         broadcastAlertState(active = false, countdown = 0)
         super.onDestroy()
@@ -356,5 +406,71 @@ class HrForegroundService : Service() {
                 Log.e(TAG, "Failed to send alert_escalate", t)
             }
         }
+    }
+
+    override fun onAccuracyChanged(
+        sensor: Sensor?,
+        accuracy: Int
+    ) {
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type != Sensor.TYPE_STEP_COUNTER) {
+            return
+        }
+
+        val totalSteps = event.values[0]
+        val now = System.currentTimeMillis()
+
+        if (lastStepCount < 0f) {
+            lastStepCount = totalSteps
+            lastStepTimestamp = now
+            return
+        }
+
+        val stepDiff = totalSteps - lastStepCount
+        val timeDiffMinutes =
+            (now - lastStepTimestamp) / 60000f
+
+        if (timeDiffMinutes > 0f) {
+
+            currentStepsPerMinute =
+                (stepDiff / timeDiffMinutes).toInt()
+
+            updateActivityAdjustedThreshold()
+
+            Log.d(
+                TAG,
+                "Steps/min=$currentStepsPerMinute " +
+                        "tachy=$currentTachyThreshold"
+            )
+        }
+
+        lastStepCount = totalSteps
+        lastStepTimestamp = now
+    }
+
+    private fun updateActivityAdjustedThreshold() {
+
+        currentTachyThreshold =
+            when {
+
+                currentStepsPerMinute >= 120 ->
+                    tachyThreshold + 30
+
+                currentStepsPerMinute >= 80 ->
+                    tachyThreshold + 20
+
+                currentStepsPerMinute >= 40 ->
+                    tachyThreshold + 10
+
+                else ->
+                    tachyThreshold
+            }
+
+        edge.nativeUpdateThresholds(
+            currentTachyThreshold,
+            bradyThreshold
+        )
     }
 }

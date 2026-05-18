@@ -15,6 +15,7 @@ class AnomalyProcessor {
 
     external fun nativeProcessSample(bpm: Int, timestampMillis: Long): Int
     external fun nativeGetLastFilteredBpm(): Int
+    external fun nativeUpdateThresholds(tachy: Int, brady: Int)
 
     fun processSample(bpm: Int, timestampMillis:Long): Int {
         return nativeProcessSample(bpm, timestampMillis)
