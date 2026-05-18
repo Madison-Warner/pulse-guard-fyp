@@ -100,7 +100,7 @@ pulse-guard-fyp/
 # Setup Instructions
 
 **1. Clone the Repository**
-git clone https://github.com/YOUR_USERNAME/pulse-guard-fyp.git
+git clone https://github.com/Madison-Warner/pulse-guard-fyp.git
 
 **2. Create a Firebase Project**
 1. Create a Firebase project
