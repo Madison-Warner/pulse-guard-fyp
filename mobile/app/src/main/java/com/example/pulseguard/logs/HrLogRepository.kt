@@ -17,7 +17,7 @@ class HrLogRepository(
         logsCollection().add(bucket).await()
     }
 
-    suspend fun getLast24Hours(): List<HrLogBucket> {
+    suspend fun getLast24HourLogs(): List<HrLogBucket> {
         val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
 
         val snapshot = logsCollection()
@@ -25,8 +25,9 @@ class HrLogRepository(
             .get()
             .await()
 
-        return snapshot.documents.mapNotNull { doc ->  doc.toObject(HrLogBucket::class.java)
-        }.sortedBy { it.bucketStart }
+        return snapshot.documents.mapNotNull {
+            it.toObject(HrLogBucket::class.java)
+        }
     }
 
     suspend fun deleteOlderThan24Hours() {

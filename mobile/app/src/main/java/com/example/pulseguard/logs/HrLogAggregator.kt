@@ -1,6 +1,5 @@
 package com.example.pulseguard.logs
 
-import android.util.Log
 import com.example.pulseguard.model.HrLogBucket
 
 class HrLogAggregator(
@@ -22,10 +21,6 @@ class HrLogAggregator(
         val start = bucketStart ?: timestamp
         val diff = timestamp - start
 
-        Log.d(
-            "HrLogs",
-            "bucketStart=$bucketStart now=$timestamp diff=$diff duration=$bucketDurationMillis"
-        )
 
         if (diff >= bucketDurationMillis && count > 0) {
             val completedBucket = HrLogBucket(
@@ -37,8 +32,6 @@ class HrLogAggregator(
                 sampleCount = count,
                 createdAt = System.currentTimeMillis()
             )
-
-            Log.d("HrLogs", "Bucket completed inside aggregator: $completedBucket")
 
             bucketStart = timestamp
             sum = bpm.toLong()

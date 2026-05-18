@@ -43,8 +43,8 @@ class MainActivity : ComponentActivity() {
         }
     private lateinit var smsHelper: SmsHelper
     private lateinit var hrLogRepository: HrLogRepository
-
     private lateinit var hrLogAggregator: HrLogAggregator
+    private lateinit var thresholdManager: ThresholdManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,6 +56,8 @@ class MainActivity : ComponentActivity() {
         hrLogRepository = HrLogRepository()
 
         hrLogAggregator = HrLogAggregator(bucketDurationMillis = 20 * 60 * 1000L) //10_000L For testing purpose
+
+        thresholdManager = ThresholdManager()
 
         setContent {
             val hrState by HrLiveBus.state.collectAsState()
@@ -99,6 +101,42 @@ class MainActivity : ComponentActivity() {
                             escalationHandled = true,
                             escalationRequested = false,
                             alertMessage = "Emergency SMS sent"
+                        )
+                    )
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                try {
+                    val logs = hrLogRepository.getLast24HourLogs()
+
+                    val config =
+                        thresholdManager.buildThresholdConfig(logs)
+
+                    Log.d(
+                        "Thresholds",
+                        "baseline=${config.baselineBpm} " +
+                                "tachy=${config.tachyThreshold} " +
+                                "brady=${config.bradyThreshold}"
+                    )
+
+                    sendThresholdsToWatch(config)
+
+                } catch (t: Throwable) {
+
+                    Log.e(
+                        "Thresholds",
+                        "Failed to load adaptive thresholds - using defaults",
+                        t
+                    )
+
+                    // FALLBACK SAFE DEFAULTS
+                    sendThresholdsToWatch(
+                        ThresholdConfig(
+                            baselineBpm = 70,
+                            tachyThreshold = 110,
+                            bradyThreshold = 50,
+                            updatedAt = System.currentTimeMillis()
                         )
                     )
                 }
@@ -195,6 +233,40 @@ class MainActivity : ComponentActivity() {
                 } catch(t: Throwable) {
                     Log.e("MainActivity", "Failed to send emergency SMS", t)
                 }
+            }
+        }
+    }
+
+    private fun sendThresholdsToWatch(
+        config: ThresholdConfig
+    ) {
+        lifecycleScope.launch {
+
+            val payload = """
+        {
+            "type":"threshold_update",
+            "baseline":${config.baselineBpm},
+            "tachy":${config.tachyThreshold},
+            "brady":${config.bradyThreshold},
+            "updatedAt":${config.updatedAt}
+        }
+        """.trimIndent()
+
+            try {
+                phoneToWatchSender.send(payload)
+
+                Log.d(
+                    "Thresholds",
+                    "Thresholds sent to watch"
+                )
+
+            } catch (t: Throwable) {
+
+                Log.e(
+                    "Thresholds",
+                    "Failed to send thresholds",
+                    t
+                )
             }
         }
     }

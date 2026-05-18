@@ -10,8 +10,8 @@ namespace {
     static int ringIndex = 0;
 
     // --- Detection config (tweak later) ---
-    static constexpr int kTachyThreshold = 80; // To force Tachy use 80 else 120
-    static constexpr int kBradyThreshold = 45;  // To force Brady use 80 else 45
+    static int gTachyThreshold = 120; // To force Tachy use 80 else 120
+    static int gBradyThreshold = 45;  // To force Brady use 80 else 45
     static constexpr int64_t kPersistMillis = 3000;
 
     // --- State ---
@@ -34,7 +34,7 @@ namespace {
     // return 0 none, 1 tachy, 2 brady
     static int detectEvent(int filteredBpm, int64_t ts) {
         // Tachy logic
-        if (filteredBpm >= kTachyThreshold) {
+        if (filteredBpm >= gTachyThreshold) {
             if (!tachyActive) {
                 tachyActive = true;
                 tachyStartTs = ts;
@@ -45,7 +45,7 @@ namespace {
         }
 
         // Brady logic
-        if (filteredBpm <= kBradyThreshold) {
+        if (filteredBpm <= gBradyThreshold) {
             if(!bradyActive) {
                 bradyActive = true;
                 bradyStartTs = ts;
@@ -97,4 +97,30 @@ Java_com_example_pulseguard_processing_AnomalyProcessor_nativeGetLastFilteredBpm
         jobject /* this*/
         ){
     return static_cast<jint>(gLastFiltered);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_pulseguard_processing_AnomalyProcessor_nativeUpdateThresholds(
+        JNIEnv* /* env */,
+        jobject /* this */,
+        jint tachy,
+        jint brady
+) {
+    // Basic sanity limits
+    if (tachy >= 80 && tachy <= 220) {
+        gTachyThreshold = tachy;
+    }
+
+    if (brady >= 20 && brady <= 80) {
+        gBradyThreshold = brady;
+    }
+
+    __android_log_print(
+            ANDROID_LOG_DEBUG,
+            "PulseGuardNative",
+            "Thresholds updated: tachy=%d brady=%d",
+            gTachyThreshold,
+            gBradyThreshold
+    );
 }

@@ -50,6 +50,34 @@ class WatchMessageListenerService : WearableListenerService() {
 
                     startForegroundService(intent)
                 }
+
+                "threshold_update" -> {
+
+                    val tachy =
+                        obj.optInt("tachy", 110)
+
+                    val brady =
+                        obj.optInt("brady", 50)
+
+                    Log.d(
+                        TAG,
+                        "Received thresholds tachy=$tachy brady=$brady"
+                    )
+
+                    val intent = Intent(
+                        this,
+                        HrForegroundService::class.java
+                    ).apply {
+
+                        action =
+                            HrForegroundService.ACTION_UPDATE_THRESHOLDS
+
+                        putExtra("tachy", tachy)
+                        putExtra("brady", brady)
+                    }
+
+                    startForegroundService(intent)
+                }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to parse phone message", t)
